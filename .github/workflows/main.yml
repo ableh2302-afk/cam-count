@@ -31,20 +31,18 @@ jobs:
           cp -r lib temp_app/
           cp pubspec.yaml temp_app/
           cp -r android_overrides/* temp_app/android/
+          if [ -f temp_app/android/app/build.gradle ]; then
+            rm -f temp_app/android/app/build.gradle.kts
+          fi
 
-      - name: Paksa compileSdk 35 untuk Semua Plugin (termasuk opencv_dart)
+      - name: Atur compileSdk 35 via settings.gradle.kts (Sebelum Evaluasi)
         run: |
-          cat << 'EOF' >> temp_app/android/build.gradle.kts
+          cat << 'EOF' >> temp_app/android/settings.gradle.kts
 
-          subprojects {
+          gradle.beforeProject {
               plugins.withId("com.android.library") {
-                  extensions.configure<com.android.build.gradle.BaseExtension> {
-                      compileSdkVersion(35)
-                  }
-              }
-              plugins.withId("com.android.application") {
-                  extensions.configure<com.android.build.gradle.BaseExtension> {
-                      compileSdkVersion(35)
+                  extensions.configure<com.android.build.api.dsl.LibraryExtension> {
+                      compileSdk = 35
                   }
               }
           }
