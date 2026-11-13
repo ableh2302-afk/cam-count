@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/license.dart';
+import 'admin_screen.dart';
 
 class ActivationScreen extends StatefulWidget {
   final String message;
@@ -15,6 +16,8 @@ class _ActivationScreenState extends State<ActivationScreen> {
   String _dev = '........';
   String? _err;
   bool _busy = false;
+  int _taps = 0;
+  DateTime _last = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -34,6 +37,29 @@ class _ActivationScreenState extends State<ActivationScreen> {
     if (e == null) widget.onActivated();
   }
 
+  Future<void> _lockTap() async {
+    final now = DateTime.now();
+    _taps = now.difference(_last).inSeconds > 3 ? 1 : _taps + 1;
+    _last = now;
+    if (_taps < 7) return;
+    _taps = 0;
+    final ctl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('PIN Master Admin'),
+        content: TextField(controller: ctl, obscureText: true, keyboardType: TextInputType.number, autofocus: true),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(c, ctl.text == kAdminPin), child: const Text('Masuk')),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminScreen()));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
@@ -43,7 +69,10 @@ class _ActivationScreenState extends State<ActivationScreen> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.lock, size: 72, color: t.colorScheme.primary),
+              GestureDetector(
+                onTap: _lockTap,
+                child: Icon(Icons.lock, size: 72, color: t.colorScheme.primary),
+              ),
               const SizedBox(height: 8),
               Text('Cam Count', style: t.textTheme.headlineMedium),
               const SizedBox(height: 4),
