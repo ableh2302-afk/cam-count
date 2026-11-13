@@ -26,16 +26,22 @@ jobs:
 
       - name: Generate Struktur Proyek & Gabungkan Override
         run: |
-          flutter create temp_app
+          flutter create --project-name cam_count temp_app
+          rm -rf temp_app/lib
           cp -r lib temp_app/
           cp pubspec.yaml temp_app/
-          cp -r android_overrides/app/* temp_app/android/app/
+          cp -r android_overrides/* temp_app/android/
 
-      - name: Install Dependencies & Build APK
+      - name: Install Dependencies & Cek Kode
         working-directory: temp_app
         run: |
           flutter pub get
-          flutter build apk --release
+          flutter analyze || true
+
+      - name: Build APK
+        working-directory: temp_app
+        run: |
+          flutter build apk --release --verbose
 
       - name: Upload File APK
         uses: actions/upload-artifact@v4
