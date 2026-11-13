@@ -31,8 +31,28 @@ jobs:
           cp -r lib temp_app/
           cp pubspec.yaml temp_app/
           cp -r android_overrides/* temp_app/android/
+
           if [ -f temp_app/android/app/build.gradle ]; then
             rm -f temp_app/android/app/build.gradle.kts
+
+            # Ambil namespace atau applicationId dari build.gradle override
+            PKG=$(grep -E "namespace|applicationId" temp_app/android/app/build.gradle | head -n 1 | sed -E 's/.*["'\'']([^"'\'']+)["'\''].*/\1/')
+            echo "Detected Android Package/Namespace: $PKG"
+
+            if [ -n "$PKG" ]; then
+              rm -rf temp_app/android/app/src/main/kotlin
+              rm -rf temp_app/android/app/src/main/java
+              PKG_PATH=$(echo "$PKG" | tr '.' '/')
+              mkdir -p "temp_app/android/app/src/main/kotlin/$PKG_PATH"
+              cat << EOF > "temp_app/android/app/src/main/kotlin/$PKG_PATH/MainActivity.kt"
+          package $PKG
+
+          import io.flutter.embedding.android.FlutterActivity
+
+          class MainActivity: FlutterActivity()
+          EOF
+            fi
+
             cat << 'EOF' >> temp_app/android/app/build.gradle
 
           android {
@@ -43,6 +63,7 @@ jobs:
           }
           EOF
           fi
+
           echo "org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=1G" >> temp_app/android/gradle.properties
 
       - name: Install Dependencies & Patch SDK Plugin
