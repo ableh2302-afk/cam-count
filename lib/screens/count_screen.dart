@@ -14,16 +14,26 @@ import '../services/db.dart';
 import '../services/detector.dart';
 import '../settings.dart';
 
-/// Menggambar lingkaran bernomor + coretan. `unit` = piksel foto per 1 px layar,
-/// sehingga ketebalan/teks tampil konsisten saat zoom maupun saat diekspor.
+/// Menggambar lingkaran bernomor + lingkaran patokan tipis + coretan.
 class MarkerPainter extends CustomPainter {
   final List<Marker> markers;
   final List<Stroke> strokes;
   final Stroke? cur;
+  final Offset? refCenter;
+  final double? refRadius;
   final AppSettings s;
   final double Function() unit;
-  MarkerPainter({required this.markers, required this.strokes, required this.cur, required this.s, required this.unit, Listenable? repaint})
-      : super(repaint: repaint);
+
+  MarkerPainter({
+    required this.markers,
+    required this.strokes,
+    required this.cur,
+    this.refCenter,
+    this.refRadius,
+    required this.s,
+    required this.unit,
+    Listenable? repaint,
+  }) : super(repaint: repaint);
 
   static void text(Canvas c, String t, Offset center, double size, Color col) {
     final tp = TextPainter(
@@ -44,12 +54,31 @@ class MarkerPainter extends CustomPainter {
     for (var i = 0; i < markers.length; i++) {
       final m = markers[i];
       final col = s.colorOf(m.sizeIdx);
-      canvas.drawCircle(Offset(m.x, m.y), m.r, Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = s.ringWidth * u
-        ..color = col);
+      canvas.drawCircle(
+        Offset(m.x, m.y),
+        m.r,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = s.ringWidth * u
+          ..color = col,
+      );
       if (s.showNumbers) text(canvas, '${i + 1}', Offset(m.x, m.y), s.textSize * u, col);
     }
+
+    // Gambar lingkaran patokan tipis (jika sedang diatur di mode Tap-Match)
+    if (refCenter != null && refRadius != null && refRadius! > 0) {
+      canvas.drawCircle(
+        refCenter!,
+        refRadius!,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5 * u
+          ..color = Colors.yellowAccent,
+      );
+      // Titik bidik tengah tipis
+      canvas.drawCircle(refCenter!, 3 * u, Paint()..color = Colors.yellowAccent);
+    }
+
     final all = [...strokes, if (cur != null) cur!];
     for (var i = 0; i < all.length; i++) {
       final st = all[i];
@@ -58,12 +87,15 @@ class MarkerPainter extends CustomPainter {
       for (final q in st.pts.skip(1)) {
         path.lineTo(q.dx, q.dy);
       }
-      canvas.drawPath(path, Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..strokeWidth = s.strokeWidth * u
-        ..color = Colors.redAccent.withOpacity(0.85));
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..strokeWidth = s.strokeWidth * u
+          ..color = Colors.redAccent.withOpacity(0.85),
+      );
       final end = st.pts.last;
       canvas.drawCircle(end, 13 * u, Paint()..color = Colors.redAccent.shade700);
       text(canvas, '${i + 1}', end, 14 * u, Colors.white);
@@ -84,14 +116,18 @@ class CountScreen extends StatefulWidget {
 class _CountScreenState extends State<CountScreen> {
   final s = appSettings;
   ui.Image? _img;
-  int mode = 0, active = 0;
+  int mode = 1, active = 0; // Default langsung ke Mode 1 (Tap-Match Patokan)
   late int refIdx = s.refSizeIdx;
   final markers = <Marker>[];
   final strokes = <Stroke>[];
   final manual = <ManualEntry>[];
   Stroke? cur;
-  bool busy = false, drawing = true, _fitted = false;
-  double? sampleD;
+  bool busy = false, drawing = true, _fitted = false, _scanned = false;
+
+  // Variabel lingkaran patokan tipis yang bisa diubah ukurannya
+  Offset? refCenter;
+  double refRadius = 35.0;
+
   final tc = TransformationController();
   final perCtl = TextEditingController(text: '8');
   final noteCtl = TextEditingController();
@@ -101,7 +137,12 @@ class _CountScreenState extends State<CountScreen> {
   void initState() {
     super.initState();
     ui.instantiateImageCodec(widget.bytes).then((c) => c.getNextFrame()).then((f) {
-      if (mounted) setState(() => _img = f.image);
+      if (mounted) {
+        setState(() {
+          _img = f.image;
+          refRadius = math.min(_img!.width, _img!.height) * 0.04;
+        });
+      }
     });
   }
 
@@ -126,7 +167,7 @@ class _CountScreenState extends State<CountScreen> {
 
   void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
-  // ---------- MODE 1 ----------
+  // ---------- MODE 0: AUTO-ALL ----------
   Future<void> _runAuto() async {
     setState(() => busy = true);
     try {
@@ -159,26 +200,36 @@ class _CountScreenState extends State<CountScreen> {
     if (mounted) setState(() => busy = false);
   }
 
-  // ---------- MODE 2 ----------
-  Future<void> _sample(Offset pt) async {
+  // ---------- MODE 1: SCAN BERDASARKAN LINGKARAN PATOKAN ----------
+  Future<void> _scanByReference() async {
+    if (refCenter == null) {
+      _snack('Ketuk satu pipa di foto terlebih dahulu untuk meletakkan lingkaran patokan.');
+      return;
+    }
     setState(() => busy = true);
     try {
-      final res = await compute(tapMatch, {
-        'bytes': widget.bytes, 'tx': pt.dx, 'ty': pt.dy, 'tol': s.tolerance / 100,
-        'p1': s.param1, 'p2': s.param2, 'mdf': s.minDistFactor,
+      final cs = await compute(detectByRadius, {
+        'bytes': widget.bytes,
+        'r': refRadius,
+        'tol': s.tolerance / 100,
+        'p1': s.param1,
+        'p2': s.param2,
+        'mdf': s.minDistFactor,
       });
-      final r = res['r'] as double;
-      if (r < 0) {
-        _snack('Pipa sampel tidak terdeteksi. Ketuk lebih ke tengah ujung pipa.');
-      } else {
-        sampleD = r * 2;
-        markers.removeWhere((m) => m.auto && m.sizeIdx == active);
-        final cs = (res['c'] as List).cast<List<double>>();
-        final add = cs.map((c) => Marker(c[0], c[1], c[2], active, true)).toList()
-          ..sort((a, b) => a.y != b.y ? a.y.compareTo(b.y) : a.x.compareTo(b.x));
-        markers.addAll(add);
-        _snack('Diameter sampel ${sampleD!.round()} px, ditemukan ${cs.length} pipa');
+
+      markers.removeWhere((m) => m.auto && m.sizeIdx == active);
+      final add = cs.map((c) => Marker(c[0], c[1], c[2], active, true)).toList();
+
+      // Pastikan pipa yang dilingkari patokan ikut terhitung jika belum masuk hasil deteksi
+      final hasRef = add.any((m) => (Offset(m.x, m.y) - refCenter!).distance < refRadius * 0.7);
+      if (!hasRef) {
+        add.add(Marker(refCenter!.dx, refCenter!.dy, refRadius, active, true));
       }
+
+      add.sort((a, b) => a.y != b.y ? a.y.compareTo(b.y) : a.x.compareTo(b.x));
+      markers.addAll(add);
+      _scanned = true;
+      _snack('Ditemukan ${add.length} pipa ukuran ${kPipeSizes[active]}');
     } catch (e) {
       _snack('Gagal memindai: $e');
     }
@@ -188,7 +239,17 @@ class _CountScreenState extends State<CountScreen> {
   // ---------- Tap & koreksi ----------
   Future<void> _onTap(Offset pt) async {
     if (busy || mode == 2) return;
-    if (mode == 1 && sampleD == null) return _sample(pt);
+
+    // Jika di Mode 1 dan belum di-scan, ketukan akan meletakkan/memindahkan lingkaran patokan tipis
+    if (mode == 1 && !_scanned) {
+      setState(() {
+        refCenter = pt;
+      });
+      _feedback();
+      return;
+    }
+
+    // Setelah scan (atau di Mode 0), ketukan menambah/menghapus penanda hasil
     var hit = -1;
     var best = double.infinity;
     for (var i = 0; i < markers.length; i++) {
@@ -206,7 +267,7 @@ class _CountScreenState extends State<CountScreen> {
         final same = markers.where((m) => m.sizeIdx == active).toList();
         final r = same.isNotEmpty
             ? same.map((m) => m.r).reduce((a, b) => a + b) / same.length
-            : (sampleD != null ? sampleD! / 2 : math.max(_img!.width, _img!.height) * 0.02);
+            : refRadius;
         markers.add(Marker(pt.dx, pt.dy, r, active, false));
       }
     });
@@ -298,7 +359,7 @@ class _CountScreenState extends State<CountScreen> {
       final ann = File(p.join(dir.path, 'bertanda_$ts.png'))..writeAsBytesSync(await _render(now));
       try {
         await Gal.putImage(ann.path);
-      } catch (_) {/* galeri opsional */}
+      } catch (_) {}
 
       final details = <Map<String, Object?>>[];
       final autoCount = List<int>.filled(kPipeSizes.length, 0);
@@ -372,8 +433,14 @@ class _CountScreenState extends State<CountScreen> {
                 Positioned.fill(
                   child: CustomPaint(
                     painter: MarkerPainter(
-                      markers: markers, strokes: strokes, cur: cur, s: s,
-                      unit: () => 1 / tc.value.getMaxScaleOnAxis(), repaint: tc,
+                      markers: markers,
+                      strokes: strokes,
+                      cur: cur,
+                      refCenter: (mode == 1 && !_scanned) ? refCenter : null,
+                      refRadius: (mode == 1 && !_scanned) ? refRadius : null,
+                      s: s,
+                      unit: () => 1 / tc.value.getMaxScaleOnAxis(),
+                      repaint: tc,
                     ),
                   ),
                 ),
@@ -398,7 +465,9 @@ class _CountScreenState extends State<CountScreen> {
             selected: active == i,
             onSelected: (_) => setState(() {
               active = i;
-              if (mode == 1) sampleD = null; // ganti ukuran => ambil sampel baru
+              if (mode == 1) {
+                _scanned = false;
+              }
             }),
           ),
         ),
@@ -435,14 +504,62 @@ class _CountScreenState extends State<CountScreen> {
       ]);
     }
     if (mode == 1) {
+      final maxR = _img != null ? math.min(_img!.width, _img!.height) * 0.25 : 250.0;
+      if (!_scanned) {
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (refCenter != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.radio_button_unchecked, size: 18),
+                    const SizedBox(width: 6),
+                    Text('Ukuran: ${(refRadius * 2).round()} px'),
+                    Expanded(
+                      child: Slider(
+                        value: refRadius.clamp(6.0, maxR),
+                        min: 6.0,
+                        max: maxR,
+                        onChanged: (v) => setState(() => refRadius = v),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(children: [
+                Expanded(
+                  child: Text(
+                    refCenter == null
+                        ? 'Ketuk 1 ujung pipa di foto untuk memunculkan lingkaran patokan.'
+                        : 'Geser slider agar lingkaran pas dengan pipa, lalu tekan Scan.',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: (busy || refCenter == null) ? null : _scanByReference,
+                  icon: const Icon(Icons.search),
+                  label: const Text('Scan'),
+                ),
+              ]),
+            ),
+          ],
+        );
+      }
       return Row(children: [
         const SizedBox(width: 8),
         Expanded(
-          child: Text(sampleD == null
-              ? 'Pilih ukuran ${kPipeSizes[active]} lalu ketuk SATU ujung pipa sampel di foto.'
-              : 'Sampel ${sampleD!.round()} px (±${s.tolerance.round()}%). Ketuk foto untuk tambah/hapus penanda.'),
+          child: Text('Diameter ${(refRadius * 2).round()} px (±${s.tolerance.round()}%). Ketuk foto untuk tambah/hapus penanda.', style: const TextStyle(fontSize: 12)),
         ),
-        TextButton(onPressed: () => setState(() => sampleD = null), child: const Text('Ulang Sampel')),
+        TextButton.icon(
+          onPressed: () => setState(() => _scanned = false),
+          icon: const Icon(Icons.tune, size: 18),
+          label: const Text('Atur Ulang Patokan'),
+        ),
       ]);
     }
     final total = (int.tryParse(perCtl.text) ?? 0) * strokes.length;
@@ -499,7 +616,7 @@ class _CountScreenState extends State<CountScreen> {
                   selected: {mode},
                   onSelectionChanged: (v) => setState(() {
                     mode = v.first;
-                    sampleD = null;
+                    _scanned = false;
                   }),
                 ),
               ),
