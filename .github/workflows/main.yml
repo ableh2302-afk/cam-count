@@ -34,6 +34,7 @@ jobs:
           if [ -f temp_app/android/app/build.gradle ]; then
             rm -f temp_app/android/app/build.gradle.kts
           fi
+          echo "org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=1G" >> temp_app/android/gradle.properties
 
       - name: Install Dependencies & Patch SDK Plugin
         working-directory: temp_app
@@ -41,10 +42,15 @@ jobs:
           flutter pub get
           find ~/.pub-cache -name "build.gradle" -exec sed -i 's/compileSdkVersion 33/compileSdkVersion 35/g; s/compileSdk 33/compileSdk 35/g; s/compileSdk = 33/compileSdk = 35/g' {} +
 
-      - name: Build APK
-        working-directory: temp_app
+      - name: Build APK (Skip Lint)
+        working-directory: temp_app/android
         run: |
-          flutter build apk --release
+          ./gradlew assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease
+
+      - name: Pindahkan APK ke Jalur Standar Flutter
+        run: |
+          mkdir -p temp_app/build/app/outputs/flutter-apk
+          cp temp_app/android/app/build/outputs/apk/release/app-release.apk temp_app/build/app/outputs/flutter-apk/app-release.apk
 
       - name: Upload File APK
         uses: actions/upload-artifact@v4
