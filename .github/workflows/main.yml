@@ -37,17 +37,15 @@ jobs:
           cat << 'EOF' >> temp_app/android/build.gradle.kts
 
           subprojects {
-              val applySdk = Action<Project> {
-                  if (plugins.hasPlugin("com.android.library") || plugins.hasPlugin("com.android.application")) {
-                      extensions.configure<com.android.build.gradle.BaseExtension> {
-                          compileSdkVersion(35)
-                      }
+              plugins.withId("com.android.library") {
+                  extensions.configure<com.android.build.gradle.BaseExtension> {
+                      compileSdkVersion(35)
                   }
               }
-              if (state.executed) {
-                  applySdk.execute(this)
-              } else {
-                  afterEvaluate(applySdk)
+              plugins.withId("com.android.application") {
+                  extensions.configure<com.android.build.gradle.BaseExtension> {
+                      compileSdkVersion(35)
+                  }
               }
           }
           EOF
