@@ -47,13 +47,8 @@ jobs:
         run: |
           ./gradlew assembleRelease -x lintVitalAnalyzeRelease -x lintVitalRelease
 
-      - name: Pindahkan APK ke Jalur Standar Flutter
-        run: |
-          mkdir -p temp_app/build/app/outputs/flutter-apk
-          cp temp_app/android/app/build/outputs/apk/release/app-release.apk temp_app/build/app/outputs/flutter-apk/app-release.apk
-
       - name: Upload File APK
         uses: actions/upload-artifact@v4
         with:
           name: cam-count-apk
-          path: temp_app/build/app/outputs/flutter-apk/app-release.apk
+          path: temp_app/build/**/outputs/**/*.apk
