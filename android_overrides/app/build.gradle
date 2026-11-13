@@ -1,0 +1,45 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+android {
+    namespace = "com.camcount.cam_count"
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+    kotlinOptions {
+        jvmTarget = '11'
+    }
+
+    defaultConfig {
+        applicationId = "com.camcount.cam_count"
+        minSdk = 24                       // wajib untuk opencv_dart & flutter_secure_storage
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+        ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
+    }
+
+    packagingOptions {
+        jniLibs { pickFirsts += ['**/libc++_shared.so'] }
+    }
+
+    buildTypes {
+        release {
+            // Ganti dengan signing key Anda sendiri untuk distribusi resmi.
+            signingConfig = signingConfigs.debug
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}
