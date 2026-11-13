@@ -32,16 +32,26 @@ jobs:
           cp pubspec.yaml temp_app/
           cp -r android_overrides/* temp_app/android/
 
-      - name: Install Dependencies & Cek Kode
+      - name: Paksa compileSdk 35 untuk Semua Plugin (termasuk opencv_dart)
+        run: |
+          cat << 'EOF' >> temp_app/android/build.gradle.kts
+
+          subprojects {
+              afterEvaluate {
+                  if (plugins.hasPlugin("com.android.library") || plugins.hasPlugin("com.android.application")) {
+                      extensions.configure<com.android.build.gradle.BaseExtension> {
+                          compileSdkVersion(35)
+                      }
+                  }
+              }
+          }
+          EOF
+
+      - name: Install Dependencies & Build APK
         working-directory: temp_app
         run: |
           flutter pub get
-          flutter analyze || true
-
-      - name: Build APK
-        working-directory: temp_app
-        run: |
-          flutter build apk --release --verbose
+          flutter build apk --release
 
       - name: Upload File APK
         uses: actions/upload-artifact@v4
