@@ -7,7 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// WAJIB diganti sebelum build rilis. Jangan pernah dibagikan.
 const String kSecretKey = 'GANTI-DENGAN-SECRET-PANJANG-ACAK-MILIK-ANDA-8f3k2Qz9xLw1';
-const String kAdminPin = '889900';
+const String kAdminPin = '290919';
 
 class LicenseStatus {
   final bool valid;
